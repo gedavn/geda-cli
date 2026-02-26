@@ -8,7 +8,7 @@ CLI for `geda-web` API (`/api/v1/*`), including:
 
 ## Requirements
 
-- Go 1.23+
+- Go 1.26+
 - running `geda-web` with API v1 enabled
 
 ## Build and run
