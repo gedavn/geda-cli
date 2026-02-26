@@ -1,0 +1,4 @@
+interface:
+  display_name: "Geda CLI Usage"
+  short_description: "Run and troubleshoot geda-cli workflows"
+  default_prompt: "Use $geda-cli-usage to run, verify, and troubleshoot geda-cli commands in this repository."

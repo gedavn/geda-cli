@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -63,7 +66,55 @@ func (c *Client) Delete(p string) (map[string]any, error) {
 	return c.do(http.MethodDelete, p, nil)
 }
 
+func (c *Client) PostMultipartFile(p string, fileField string, filePath string, fields map[string]string) (map[string]any, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	for key, value := range fields {
+		if err := writer.WriteField(key, value); err != nil {
+			return nil, err
+		}
+	}
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	part, err := writer.CreateFormFile(fileField, filepath.Base(filePath))
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := io.Copy(part, file); err != nil {
+		return nil, err
+	}
+
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+
+	return c.doRaw(http.MethodPost, p, &body, writer.FormDataContentType())
+}
+
 func (c *Client) do(method string, p string, payload any) (map[string]any, error) {
+	var bodyReader io.Reader
+	contentType := ""
+	if payload != nil {
+		payloadBytes, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+
+		bodyReader = bytes.NewReader(payloadBytes)
+		contentType = "application/json"
+	}
+
+	return c.doRaw(method, p, bodyReader, contentType)
+}
+
+func (c *Client) doRaw(method string, p string, bodyReader io.Reader, contentType string) (map[string]any, error) {
 	if c.baseURL == "" {
 		return nil, errors.New("base URL is required")
 	}
@@ -73,17 +124,13 @@ func (c *Client) do(method string, p string, payload any) (map[string]any, error
 		return nil, err
 	}
 
-	baseURL.Path = path.Join(baseURL.Path, p)
-
-	var bodyReader io.Reader
-	if payload != nil {
-		payloadBytes, err := json.Marshal(payload)
-		if err != nil {
-			return nil, err
-		}
-
-		bodyReader = bytes.NewReader(payloadBytes)
+	endpointURL, err := url.Parse(p)
+	if err != nil {
+		return nil, err
 	}
+
+	baseURL.Path = path.Join(baseURL.Path, endpointURL.Path)
+	baseURL.RawQuery = endpointURL.RawQuery
 
 	req, err := http.NewRequest(method, baseURL.String(), bodyReader)
 	if err != nil {
@@ -91,8 +138,8 @@ func (c *Client) do(method string, p string, payload any) (map[string]any, error
 	}
 
 	req.Header.Set("Accept", "application/json")
-	if payload != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	if c.accessToken != "" {
 		req.Header.Set("Authorization", "Bearer "+c.accessToken)
