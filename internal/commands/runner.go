@@ -258,6 +258,14 @@ func (r Runner) runContentResource(resource string, args []string) int {
 		}
 
 		return r.runPostImport(args[1:])
+	case "upload-image":
+		if resource != "post" {
+			output.PrintError("upload-image is only supported for post", "invalid_subcommand", nil, r.Human)
+
+			return ExitValidation
+		}
+
+		return r.runPostUploadImage(args[1:])
 	default:
 		output.PrintError("Unknown resource subcommand", "unknown_subcommand", map[string]any{"subcommand": args[0]}, r.Human)
 
@@ -548,6 +556,52 @@ func (r Runner) runPostImport(args []string) int {
 	}
 
 	response, err := client.Post("/api/v1/posts", payload)
+	if err != nil {
+		return r.handleError(err)
+	}
+
+	if err := output.Print(response, r.Human); err != nil {
+		output.PrintError("failed to print output", "print_error", err.Error(), r.Human)
+
+		return ExitNetwork
+	}
+
+	return ExitSuccess
+}
+
+func (r Runner) runPostUploadImage(args []string) int {
+	client, err := r.authenticatedClient()
+	if err != nil {
+		output.PrintError(err.Error(), "not_logged_in", nil, r.Human)
+
+		return ExitAuth
+	}
+
+	fs := flag.NewFlagSet("post upload-image", flag.ContinueOnError)
+	filePath := fs.String("file", "", "Path to image file")
+	altVI := fs.String("alt-vi", "", "Vietnamese alt text")
+	altEN := fs.String("alt-en", "", "English alt text")
+	if err := fs.Parse(args); err != nil {
+		output.PrintError(err.Error(), "parse_error", nil, r.Human)
+
+		return ExitValidation
+	}
+
+	if strings.TrimSpace(*filePath) == "" {
+		output.PrintError("file is required", "missing_required_flags", nil, r.Human)
+
+		return ExitValidation
+	}
+
+	fields := map[string]string{}
+	if trimmed := strings.TrimSpace(*altVI); trimmed != "" {
+		fields["alt_text[vi]"] = trimmed
+	}
+	if trimmed := strings.TrimSpace(*altEN); trimmed != "" {
+		fields["alt_text[en]"] = trimmed
+	}
+
+	response, err := client.PostMultipartFile("/api/v1/media", "file", *filePath, fields)
 	if err != nil {
 		return r.handleError(err)
 	}
@@ -906,12 +960,12 @@ func (r Runner) printHealthUsage() {
 }
 
 func (r Runner) printResourceUsage(resource string) {
-	output.PrintError("Usage: geda "+resource+" <list|get|upsert|delete"+importUsageSuffix(resource)+">", "usage", nil, r.Human)
+	output.PrintError("Usage: geda "+resource+" <list|get|upsert|delete"+resourceUsageSuffix(resource)+">", "usage", nil, r.Human)
 }
 
-func importUsageSuffix(resource string) string {
+func resourceUsageSuffix(resource string) string {
 	if resource == "post" {
-		return "|import"
+		return "|import|upload-image"
 	}
 
 	return ""
